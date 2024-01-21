@@ -28,6 +28,33 @@ AuditSphere consists of two main components:
 - **Client:** Install this on your file server.
 - **Server:** A Django web application that stores logs and provides a user-friendly interface.
 
+## Features 🚀
+
+AuditSphere offers a range of powerful features, including:
+
+- 📁 File Added
+- 🗑️ File Removed
+- 📝 File Modified
+- 🔄 File Renamed
+- 📦 File Moved
+- 👤 Owner Changed
+- 🔒 ACL (Access Control List) Changed
+- ✔️ Successful Action Logging
+- 🚧 Failed Action Logging (In Progress)
+
+AuditSphere records the following information for each action:
+- ⏰ Time of Action
+- 👤 User Who Performed the Action
+- 🌐 IP Address of User's Computer
+
+### Supported Protocols 🌐
+
+AuditSphere currently supports the following protocols:
+- SMB (Server Message Block)
+- NFS (Network File System)
+
+Please note that we are actively working on improving our feature set and expanding protocol support. 
+
 ## Reports 📊
 
 This repository includes project reports covering various aspects of the project, including detailed requirement gathering, design, implementation, testing, and conclusions.
