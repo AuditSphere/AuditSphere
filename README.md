@@ -2,7 +2,7 @@
 
 🔒 Enhance the security and compliance of your Windows and Linux file servers with AuditSphere! 🔍
 
-![AuditSphere Logo](link_to_logo.png)
+![AuditSphere Logo](AuditSphere_Logo.png)
 
 ## Introduction
 
