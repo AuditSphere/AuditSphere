@@ -1,0 +1,28 @@
+{% extends 'core/base.html' %}
+{% load widget_tweaks %}
+
+{% block content %}
+  <div class="max-w-lg mx-auto py-6">
+    <h2 class="text-2xl font-bold mb-4">Create User</h2>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="mb-4">
+          <label class="block text-white text-sm font-bold mb-2" for="{{ field.id_for_label }}">
+            {{ field.label }}
+          </label>
+          {{ field|add_class:"bg-gray-900 w-full py-2 px-3 text-white border border-gray-500 rounded " }} 
+          {% if field.help_text %}
+            <p class="text-sm text-gray-600">{{ field.help_text }}</p>
+          {% endif %}
+          {% for error in field.errors %}
+            <p class="text-red-500 text-xs italic">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <div>
+        <button type="submit" class="flex w-full justify-center rounded-md bg-indigo-600 px-2 py-3 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Create</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

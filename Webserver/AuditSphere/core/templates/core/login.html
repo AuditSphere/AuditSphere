@@ -1,0 +1,45 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8 bg-gray-900 text-white">
+  <div class="sm:mx-auto sm:w-full sm:max-w-sm">
+    <img class="mx-auto h-100 w-auto" src="\media\static\AuditSphere4.png" alt="AuditSphere Logo">
+    <h2 class="text-center text-2xl font-bold leading-9 tracking-tight">Sign in to your account</h2>
+  </div>
+
+  <div class="sm:mx-auto sm:w-full sm:max-w-sm">
+    <form class="space-y-6" method="post" action=".">
+      {% csrf_token %}
+      
+      {% if form.errors or form.non_field_errors %}
+        <div class="text-red-500">
+            {% for field in form %}
+                {{ field.errors }}
+            {% endfor %}
+
+            {{ form.non_field_errors }}
+        </div>
+      {% endif %}
+
+      <div>
+        <label for="id_email" class="block text-sm font-medium leading-6">Email address</label>
+        <div class="mt-2">
+          {{ form.username }}
+        </div>
+      </div>
+      <div>
+        <label for="id_password" class="block text-sm font-medium leading-6">Password</label>
+        <div class="mt-2">
+          {{ form.password }}
+        </div>
+      </div>
+      <div>
+        <button type="submit" class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-4 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Sign in</button>
+      </div>
+      <div class="text-sm ">
+        <a href="{% url 'core:password_reset' %}" class=" font-semibold text-indigo-400 hover:text-indigo-300">Forgot password?</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

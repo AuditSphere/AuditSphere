@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+{% extends 'core/base.html' %}
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {% block title %}Logs{% endblock %}
+</head>
+
+{% block content %}
+<body class="bg-gray-900 text-white font-sans">
+  <div class="container mx-auto p-8">
+    <h2 class="text-2xl font-semibold mb-4">Logs</h2>
+
+    <form method="get" action="{% url 'logs:index' %}" class="mb-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+        <!-- Search -->
+        <div class="mb-2">
+          <label for="search" class="block text-white text-sm font-bold mb-2">Search:</label>
+          <input type="text" name="search" id="search" placeholder="Search in 'What', 'Old Path', 'New Path'" value="{{ request.GET.search }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+        </div>
+
+        <!-- Who -->
+        <div class="mb-2">
+          <label for="who" class="block text-white text-sm font-bold mb-2">Who:</label>
+          <input type="text" name="who" id="who" placeholder="Who" value="{{ request.GET.who }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+        </div>
+
+        <!-- Where -->
+        <div class="mb-2">
+          <label for="where" class="block text-white text-sm font-bold mb-2">Where:</label>
+          <input type="text" name="where" id="where" placeholder="Where" value="{{ request.GET.where }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+        <!-- Start Date -->
+        <div class="mb-2">
+          <label for="start_date" class="block text-white text-sm font-bold mb-2">Start Date:</label>
+          <div class="relative">
+            <input type="datetime-local" name="start_date" id="start_date" value="{{ request.GET.start_date }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+            <i class="absolute top-3 right-3 text-white fas fa-calendar"></i>
+          </div>
+        </div>
+
+        <!-- End Date -->
+        <div class="mb-2">
+          <label for="end_date" class="block text-white text-sm font-bold mb-2">End Date:</label>
+          <div class="relative">
+            <input type="datetime-local" name="end_date" id="end_date" value="{{ request.GET.end_date }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+            <i class="absolute top-3 right-3 text-white fas fa-calendar"></i>
+          </div>
+        </div>
+
+        <!-- Share Name -->
+        <div class="mb-2">
+          <label for="share_name" class="block text-white text-sm font-bold mb-2">Share Name:</label>
+          <input type="text" name="share_name" id="share_name" placeholder="Share Name" value="{{ request.GET.share_name }}" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+        <!-- Action -->
+        <div class="mb-2">
+            <label for="action" class="block text-white text-sm font-bold mb-2">Action:</label>
+            <select name="action" id="action" multiple class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+                <option value="Renamed" {% if "Renamed" in request.GET.action %} selected{% endif %}>Renamed</option>
+                <option value="Moved" {% if "Moved" in request.GET.action %}selected{% endif %}>Moved</option>
+                <option value="Modified" {% if "Modified" in request.GET.action %}selected{% endif %}>Modified</option>
+                <option value="Created" {% if "Created" in request.GET.action %}selected{% endif %}>Created</option>
+                <option value="Accessed" {% if "Accessed" in request.GET.action %}selected{% endif %}>Accessed</option>
+                <option value="Removed" {% if "Removed" in request.GET.action %}selected{% endif %}>Removed</option>
+                <option value="Owner Changed" {% if "Owner Changed" in request.GET.action %}selected{% endif %}>Owner Changed</option>
+            </select>
+        </div>
+        
+
+        <!-- Object Type -->
+        <div class="mb-2">
+          <label for="object_type" class="block text-white text-sm font-bold mb-2">Object Type:</label>
+          <select name="object_type" id="object_type" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+            <option value="File" {% if "File" == request.GET.object_type %} selected{% endif %}>File</option>
+            <option value="Directory" {% if "Directory" == request.GET.object_type %} selected{% endif %}>Directory</option>
+          </select>
+        </div>
+
+        <!-- Status -->
+        <div class="mb-2">
+          <label for="status" class="block text-white text-sm font-bold mb-2">Status:</label>
+          <select name="status" id="status" class="w-full p-2 bg-gray-900 text-white border border-gray-500 rounded">
+            <option value="Success" {% if "Success" == request.GET.status %} selected{% endif %}>Success</option>
+            <option value="Failure" {% if "Failure" == request.GET.status %} selected{% endif %}>Failure</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-4">
+        <button type="submit" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded">Search</button>
+        <a href="{% url 'logs:index' %}?export=csv" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded">Export CSV</a>
+        <a href="{% url 'logs:index' %}" class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold py-2 px-4 rounded">Reset Filters</a>
+      </div>
+    </form>
+
+      <div class="flex flex-col">
+        <div class="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+            <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
+                <div class="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+                    <table class="w-full divide-y divide-gray-200 ">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">When</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Who</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Action</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Where</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Share Name</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Object Type</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Host</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        {% for log in log_entries %}
+                        <tbody class="{% cycle 'bg-gray-800' 'bg-gray-900' %}">
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.when|date:"d-M-Y H:i:s" }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.who }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.action }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.where }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.share_name }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.object_type }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.host }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">{{ log.status }}</td>
+                            </tr>
+                            {% if log.action in 'Accessed, Created, Removed, Modified' %}
+                            <tr>
+                                <td colspan="8" class="px-6 pt-0 pb-4 whitespace-nowrap">What: {{ log.what }}</td>
+                            </tr>
+                            {% elif log.action in 'Renamed, Moved' %}
+
+                            <tr>
+                                <td colspan="8" class="px-6 pt-0 pb-4 whitespace-nowrap">
+                                    Old Path: {{ log.old_path }} <br>
+                                    New Path: {{ log.new_path }}
+                                </td>
+                            </tr>
+                            {% elif log.action == 'Owner Changed' %}
+                            <tr>
+                                <td colspan="8" class="px-6 pt-0 pb-4 whitespace-nowrap">
+                                    What: {{ log.what }} <br>
+                                    Old Owner: {{ log.old_owner }} <br>
+                                    New Owner: {{ log.new_owner }}
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+        </div>
+      </div>
+      
+      <div class="flex items-center justify-between border-t border-gray-200 bg-gray-700 px-4 py-3 sm:px-6">
+        <div class="flex flex-1 justify-between sm:hidden">
+            <a href="#" class="relative inline-flex items-center rounded-md border border-gray-300 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-100 hover:bg-gray-600">Previous</a>
+            <a href="#" class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-100 hover:bg-gray-600">Next</a>
+        </div>
+        <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+            <div>
+                <p class="text-sm text-gray-100">
+                    Showing
+                    <span class="font-medium">{{ log_entries.start_index }}</span>
+                    to
+                    <span class="font-medium">{{ log_entries.end_index }}</span>
+                    of
+                    <span class="font-medium">{{ log_entries.paginator.count }}</span>
+                    results
+                </p>
+            </div>
+            <div>
+              <nav class="isolate inline-flex -space-x-px rounded-md shadow-sm" aria-label="Pagination">
+                {% if log_entries.has_previous %}
+                    <a href="?page=1&{{ params }}" class="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-600 focus:z-20 focus:outline-offset-0">
+                        <span class="sr-only">First</span>
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+                        </svg>
+                    </a>
+                    <a href="?page={{ log_entries.previous_page_number }}&{{ params }}" class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-600 focus:z-20 focus:outline-offset-0">
+                        <span class="sr-only">Previous</span>
+                    </a>
+                {% endif %}
+                {% for num in log_entries.paginator.page_range %}
+                    <a href="?page={{ num }}&{{ params }}" {% if num == log_entries.number %}class="relative z-10 inline-flex items-center bg-indigo-600 px-4 py-2 text-sm font-semibold text-white focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"{% else %}class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-100 ring-1 ring-inset ring-gray-300 hover:bg-gray-600  focus:z-20 focus:outline-offset-0"{% endif %}>
+                        {{ num }}
+                    </a>
+                {% endfor %}
+                {% if log_entries.has_next %}
+                    <a href="?page={{ log_entries.next_page_number }}&{{ params }}" class="relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-600 focus:z-20 focus:outline-offset-0">
+                        <span class="sr-only">Next</span>
+                    </a>
+                    <a href="?page={{ log_entries.paginator.num_pages }}&{{ params }}" class="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-400 ring-1 ring-inset ring-gray-300 hover:bg-gray-600 focus:z-20 focus:outline-offset-0">
+                        <span class="sr-only">Last</span>
+                        <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                        </svg>
+                    </a>
+                {% endif %}
+              </nav>
+            </div>
+            <form method="get" action="{% url 'logs:index' %}" class="ml-4 text-white">
+              {% for key, value in request.GET.items %}
+                  {% if key != 'page' and key != 'entries_per_page' %}
+                      <input type="hidden" name="{{ key }}" value="{{ value }}">
+                  {% endif %}
+              {% endfor %}
+          
+              <label for="entries_per_page" class="text-white">Entries per page:</label>
+              <select name="entries_per_page" id="entries_per_page" onchange="this.form.submit()" class="bg-gray-700 text-white border border-gray-500 rounded">
+                  <option value="15" {% if request.GET.entries_per_page == "15" %}selected{% endif %}>15</option>
+                  <option value="50" {% if request.GET.entries_per_page == "50" %}selected{% endif %}>50</option>
+                  <option value="100" {% if request.GET.entries_per_page == "100" %}selected{% endif %}>100</option>
+              </select>
+            </form>
+        </div>
+      </div>
+    </div>
+</body>
+</html>
+{% endblock %}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+{% extends 'core/base.html' %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% block content %}
+
+<div class="max-w-lg mx-auto py-6">
+    <h2 class="text-2xl font-bold mb-4">Edit Client Details</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div>
+            <label for="client-name" class="text-gray-300">Client Name:</label>
+            <input type="text" name="client_name" id="client-name" aria-label="Client Name" class="bg-gray-900 w-full py-2 px-3 text-white border border-gray-500 rounded" value="{{ api_token.client }}">
+        </div>
+        <div>
+            <label for="whitelisted_ips" class="text-gray-300">Whitelisted IPs:</label>
+            <input type="text" name="whitelisted_ips" id="whitelisted_ips" aria-label="Whitelisted IPs" class="bg-gray-900 w-full py-2 px-3 text-white border border-gray-500 rounded" value="{{ api_token.whitelisted_ips }}">
+        </div>
+        <div class="mt-4">
+            <button type="submit" name="action" value="update" class="flex w-full justify-center rounded-md bg-indigo-600 px-2 py-3 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">Update</button>
+        </div>
+    </form>
+</div>
+</html>
+{% endblock %}

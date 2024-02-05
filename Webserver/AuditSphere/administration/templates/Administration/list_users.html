@@ -1,0 +1,54 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<div class="flex justify-between items-center">
+    <h2 class="text-2xl font-bold mb-4">Users</h2>
+    <a class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-700 hover:bg-indigo-800" href="{% url 'administration:create_user' %}">
+        Create User &#x2b;
+    </a>
+</div>
+<table class="min-w-full divide-y divide-gray-200 shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+    <thead class="bg-gray-700">
+        <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                Username
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                First Name
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                Last Name
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                Email
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                Last Login
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-bold text-gray-100 uppercase tracking-wider">
+                Actions
+            </th>
+        </tr>
+    </thead>
+    <tbody class="bg-gray-800 divide-y divide-gray-200">
+        {% for user in users %}
+        <tr>
+            <td class="px-6 py-4 whitespace-nowrap">{{ user.username }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">{{ user.first_name }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">{{ user.last_name }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">{{ user.email }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">{{ user.last_login }}</td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                {% if user.is_active %}
+                    <a class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-700 hover:bg-indigo-800" href="{% url 'administration:disable_user' user.id %}">Deactivate</a>
+                {% else %}
+                    <a class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-700 hover:bg-indigo-800" href="{% url 'administration:enable_user' user.id %}">Activate</a>
+                {% endif %}
+                <a class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-700 hover:bg-indigo-800 ml-2" href="{% url 'administration:delete_user' user.id %}">Delete</a>
+                <a class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-700 hover:bg-indigo-800 ml-2" href="{% url 'administration:edit_user' user.id %}">Edit</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

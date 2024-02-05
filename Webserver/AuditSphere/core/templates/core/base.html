@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Language" content="en">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} AuditSphere</title>
+    <script src="\media\static\3.4.1.js"></script>
+
+    
+</head>
+<body class="font-sans bg-gray-900 text-white">
+    <header class="bg-gray-900">
+        <nav class="mx-auto max-w-7xl flex items-center justify-between px-6 py-4">
+            <div class="flex flex-1">
+                <a href="/" class="p-2">
+                    <span class="sr-only">AuditSphere</span>
+                    {% load static %}
+                    <img class="h-8 w-auto" src="\media\static\AuditSphere.png" alt="AuditSphere">
+                </a>
+            </div>
+            <div class="hidden lg:flex gap-8">
+                {% if request.user.is_authenticated %}
+                    <a href="{% url 'core:index' %}" class="text-sm font-medium leading-5 text-white hover:text-gray-300">Home</a>
+                    <a href="{% url 'logs:index' %}" class="text-sm font-medium leading-5 text-white hover:text-gray-300">Logs</a>                    
+                    <div class="relative group">
+                        <a href="#" class="text-sm font-medium leading-5 text-white hover:text-gray-300 flex items-center">
+                            Administration
+                            <span class="ml-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
+                                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                </svg>
+                            </span>
+                        </a>
+                        <ul class="absolute z-[1000] left-0 mt-1/2 hidden min-w-max list-none overflow-hidden rounded-lg bg-gray-800 text-white text-left text-base shadow-lg group-hover:block">
+                            <li>
+                                <a class="block w-full px-4 py-2 text-sm text-gray-200 hover:bg-gray-700" href="{% url 'administration:users' %}">Users</a>
+                            </li>
+                            <li>
+                                <a class="block w-full px-4 py-2 text-sm text-gray-200 hover:bg-gray-700" href="{% url 'monitor:clients' %}">Clients</a>
+                            </li>
+                            <li>
+                                <a class="block w-full px-4 py-2 text-sm text-gray-200 hover:bg-gray-700" href="{% url 'admin:index' %}">Admin Panel</a>
+                            </li>
+                        </ul>
+                    </div>
+                {% endif %}
+            </div>
+            <div class="hidden lg:flex flex-1 justify-end">
+                {% if request.user.is_authenticated %}
+                    <a href="{% url 'core:logout' %}" class="text-sm font-medium leading-5 text-white hover:text-gray-300">Sign out</a>
+                {% else %}
+                    <a href="{% url 'core:login' %}" class="text-sm font-medium leading-5 text-white hover:text-gray-300">Login</a>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+    <hr class="border-gray-700">
+    <div class="container mx-auto px-4 py-6">
+        {% block content %}
+        {% endblock %}
+    </div>
+</body>
+</html>

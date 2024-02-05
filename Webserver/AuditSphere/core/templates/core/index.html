@@ -1,0 +1,132 @@
+{% extends 'core/base.html' %}
+{% block title %}AuditSphere{% endblock %}
+
+{% block content %}
+<div style="width: 60%;">
+    <h2>AuditSphere Log Actions</h2>
+
+    <!-- Line Chart -->
+    <canvas id="logChart"></canvas>
+
+    <!-- Bar Chart -->
+    <canvas id="barChart"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('logChart').getContext('2d');
+    const chartData = {{ chart_data|safe }};
+    const hours = Object.keys(chartData);
+
+    const dataSets = [];
+    const actions = ['Renamed', 'Moved', 'Created', 'Accessed', 'Removed', 'Owner Changed'];  // List of actions
+    const colors = ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)', 'rgba(75, 192, 192, 1)', 'rgba(153, 102, 255, 1)', 'rgba(54, 162, 235, 1)'];  // Colors for each action
+
+    actions.forEach((action, index) => {
+        const data = hours.map(hour => chartData[hour][action] || 0);
+        dataSets.push({
+            label: action,
+            data: data,
+            borderColor: colors[index],
+            borderWidth: 2,
+            fill: false
+        });
+    });
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: hours,
+            datasets: dataSets
+        },
+        options: {
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'  // Add this line
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 1)'
+                    }
+                },
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'  // Add this line
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 1)'
+                    }
+                }
+            },
+            legend: {
+                display: true,
+                labels: {
+                    color: 'rgba(255, 255, 255, 1)'
+                }
+            }
+        }
+    });
+
+    // Bar Chart
+    const barCtx = document.getElementById('barChart').getContext('2d');
+    const barChartData = {{ bar_chart_data|safe }};
+    const barLabels = Object.keys(barChartData);
+    const barDataSets = [];
+
+    // Rearrange the order of datasets based on the desired stacking
+    const stackingOrder = ['Renamed', 'Moved', 'Removed', 'Created', 'Accessed', 'Owner Changed'];
+
+    stackingOrder.forEach((action, index) => {
+        const data = barLabels.map(who => barChartData[who]['actions'][action] || 0);
+        barDataSets.push({
+            label: action,
+            data: data,
+            backgroundColor: colors[actions.indexOf(action)],
+            borderColor: 'rgba(255, 255, 255, 1)',  // Change this line
+            borderWidth: 1
+        });
+    });
+
+    new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: barLabels,
+            datasets: barDataSets
+        },
+        options: {
+            indexAxis: 'y',
+            scales: {
+                x: {
+                    stacked: true,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'  // Add this line
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 1)'
+                    }
+                },
+                y: {
+                    stacked: true,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'  // Add this line
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 1)'
+                    }
+                },
+            },
+            legend: {
+                display: true,
+                labels: {
+                    color: 'rgba(255, 255, 255, 1)'
+                }
+            },
+            tooltips: {
+                mode: 'index',
+                intersect: false,
+            },
+        },
+    });
+</script>
+{% endblock %}
