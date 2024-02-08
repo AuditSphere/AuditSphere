@@ -69,6 +69,13 @@ Learn how to install AuditSphere by following the instructions in the [Installat
 
 Get started with AuditSphere by referring to our [User Guide](link_to_user_guide.md) for effective usage.
 
+### Screenshots
+![Screenshot 2024-02-07 154402](https://github.com/AuditSphere/AuditSphere/assets/66524832/ce2d1f9a-e263-4732-9cf0-2443c117545d)
+![Screenshot 2024-02-07 160856](https://github.com/AuditSphere/AuditSphere/assets/66524832/70121135-ae6d-4842-8104-ca6f92620195)
+![Screenshot 2024-02-07 160953](https://github.com/AuditSphere/AuditSphere/assets/66524832/416a0275-cff6-48e2-9f21-62d15cb00a33)
+![Screenshot 2024-02-07 161631](https://github.com/AuditSphere/AuditSphere/assets/66524832/b987415d-2076-42e7-ac0e-f4f2532f6f6b)
+
+
 ## Contributing 🤝
 
 We welcome contributions from the community! Please read our [Contribution Guidelines](link_to_contributing.md) to get started.
