@@ -25,7 +25,7 @@ AuditSphere was created to address the growing need for comprehensive file serve
 ## Software 💻
 
 AuditSphere consists of two main components:
-- **Client:** Install this on your file server.
+- **Agents:** Install this on your file server.
 - **Server:** A Django web application that stores logs and provides a user-friendly interface.
 
 ## Features 🚀
