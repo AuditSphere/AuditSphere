@@ -26,11 +26,11 @@ logging.basicConfig(level=logging.INFO,
                     filename='smb_monitor.log')
 
 class SMB2Monitor:
-    def __init__(self, interface):
-        self.interface = interface
-        ipv4_address, ipv6_address = self.get_interface_ip_addresses(interface)  # Get IP addresses
-        self.ip_addresses = (ipv4_address, ipv6_address)
-        self.capture_filter = self.generate_capture_filter(*self.ip_addresses) 
+    def __init__(self, config_file):
+        self.load_config(config_file)
+        self.ipv4_address, self.ipv6_address = self.get_interface_ip_addresses(self.interface)  # Get IP addresses
+        self.ip_addresses = (self.ipv4_address, self.ipv6_address)
+        self.capture_filter = self.generate_capture_filter(*self.ip_addresses)
         self.smb2_sessions = {}  
         self.tree_connect_info = {}  
         self.tree_request_info = {}
@@ -46,7 +46,6 @@ class SMB2Monitor:
         self.share_info_dict = {}
         self.close_request_info = {}
         self.computer_name = self.get_computer_name()
-        self.load_config()
         self.timer = Timer(1.0, self.send_log_data)
         self.local_log_file = 'unsent_logs.json'
         self.log_queue = queue.Queue()
@@ -108,12 +107,15 @@ class SMB2Monitor:
         
         return capture_filter
     
-    def load_config(self):
+    def load_config(self, config_file):
         try:
-            with open('config.json', 'r') as config_file:
-                config = json.load(config_file)
-                self.url = config['url']
-                self.token = config['token']
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                self.interface = config.get('interface')
+                if not self.interface:
+                    raise ValueError("Interface not specified in config file.")
+                self.url = config.get('url')
+                self.token = config.get('token')
         except Exception as e:
             logging.error(f"Error loading config: {e}")
 
@@ -969,7 +971,7 @@ class SMB2Monitor:
             return sid_str
   
 if __name__ == "__main__":
-    monitor = SMB2Monitor(interface='Ethernet 3')
+    monitor = SMB2Monitor(config_file='config.json')
     monitor.process_smb2_packet()
     monitor.log_queue.join() 
-    monitor.log_thread.join() 
+    monitor.log_thread.join()
