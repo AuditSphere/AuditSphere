@@ -6,41 +6,31 @@ import pyshark
 import re
 import datetime
 import logging
-import json
-import signal
-import asyncio
-import os
+import win32security
 import subprocess
 import win32com.client
 import socket
-
+import traceback
+import requests
+import threading
+import queue
+import json
+import os
+from threading import Timer
+from requests.exceptions import ConnectTimeout, RequestException
+import psutil
 
 
 logging.basicConfig(level=logging.INFO,
-                    format='%(levelname)s - %(message)s',
-                    filename='smb2monitor.log')
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    filename='smb_monitor.log')
 
 class SMB2Monitor:
     def __init__(self, interface):
         self.interface = interface
-        self.capture_filter = (
-            '((smb2.cmd == 3 and smb2.flags.response == 0 and !(smb2.tree contains "IPC$")) ' 
-            'or (smb2.cmd == 4 and  smb2.flags.response == 1 and smb2.nt_status == 0x00000000) '
-            'or (smb2.cmd == 3 and smb2.flags.response == 1 and smb2.nt_status == 0 and !(smb2.tree contains "IPC$")) '
-            'or (smb2.cmd == 5 and smb2.flags.response == 0 ) '
-            'or (smb2.cmd == 5 and smb2.flags.response == 1 and smb2.last_access.time != 0 and smb2.nt_status == 0) '
-            'or (smb2.cmd == 6 and smb2.flags.response == 0 ) '
-            'or (smb2.cmd == 6 and smb2.flags.response == 1 and smb2.nt_status == 0) '
-            'or (smb2.cmd == 8 and not dcerpc and smb2.file_offset == 0 and not data and (not smb2.share_type or smb2.share_type == 0x01)) '
-            'or (smb2.cmd == 16 and smb2.sec_info.infolevel == 0x00 '
-            'and (smb2.flags.response == 0 and smb2.getsetinfo_additional_secinfo.owner == 1 '
-            'or smb2.getsetinfo_additional_secinfo.dacl == 1 or smb2.nt_status == 0)) or (smb2.cmd == 17)) '
-            'and !(smb2.filename contains ":Zone.Identifier") and !(smb2.filename contains ".TMP") and !(smb2.filename contains ".tmp") and !(smb2.filename contains "tmp") and !(smb2.filename contains ".inf") and !(smb2.filename contains ".config") and !(smb2.filename contains "Thumbs.db")'
-            'and !(smb2.filename contains "") and !(smb2.filename contains ":") and !(smb2.filename == "srvsvc") and !(smb2.filename == "wkssvc") and !(smb2.filename == "MsFteWds") '
-            'and !(smb2.filename contains ".ini") and !(smb2.filename contains ".dst") and !(smb2.filename contains ".dbl") and !(smb2.filename contains ".dll") and !(smb2.filename contains ".dwl") and !(smb2.filename contains ".bak") '
-            'and !(smb2.file_attribute.hidden == 1) '
-        )
-        self.kerberos_info = {}  
+        ipv4_address, ipv6_address = self.get_interface_ip_addresses(interface)  # Get IP addresses
+        self.ip_addresses = (ipv4_address, ipv6_address)
+        self.capture_filter = self.generate_capture_filter(*self.ip_addresses) 
         self.smb2_sessions = {}  
         self.tree_connect_info = {}  
         self.tree_request_info = {}
@@ -56,115 +46,235 @@ class SMB2Monitor:
         self.share_info_dict = {}
         self.close_request_info = {}
         self.computer_name = self.get_computer_name()
-        self.fully_qualified_domain_name = self.get_fully_qualified_domain_name()
-        self.shared_folders_last_update = 0
-        self.shared_folders_cache_duration = 600 
+        self.load_config()
+        self.timer = Timer(1.0, self.send_log_data)
+        self.local_log_file = 'unsent_logs.json'
+        self.log_queue = queue.Queue()
+        self.log_thread = threading.Thread(target=self.send_log_data)
+        self.log_thread.daemon = True
+        self.log_thread.start()
+
+    def get_interface_ip_addresses(self, interface_name):
+        """
+        Retrieves both IPv4 and IPv6 addresses for the given network interface.
+        """
+        ipv4_address, ipv6_address = None, None
+        
+        addresses = psutil.net_if_addrs().get(interface_name)
+        
+        if addresses:
+            for addr in addresses:
+                if addr.family == socket.AF_INET:
+                    ipv4_address = addr.address
+                elif addr.family == socket.AF_INET6:
+                    ipv6_address = addr.address
+                    
+        if not ipv4_address and not ipv6_address:
+            raise ValueError(f"No IP address found for interface {interface_name}")
+        
+        return ipv4_address, ipv6_address
+
+    def generate_capture_filter(self, ipv4_address, ipv6_address):
+        """
+        Generates the capture filter string dynamically using IPv4 and IPv6 addresses.
+        """
+        # Basic SMB2 filter excluding specific IP conditions
+        base_filter = (
+            '(((smb2.cmd == 3 and smb2.flags.response == 0 and !(smb2.tree contains "IPC$")) ' 
+            'or (smb2.cmd == 4 and smb2.flags.response == 1 and smb2.nt_status == 0x00000000) '
+            'or (smb2.cmd == 3 and smb2.flags.response == 1 and smb2.nt_status == 0 and !(smb2.tree contains "IPC$")) '
+            'or (smb2.cmd == 5 and smb2.flags.response == 0 ) '
+            'or (smb2.cmd == 5 and smb2.flags.response == 1 and smb2.last_access.time != 0 and smb2.nt_status == 0) '
+            'or (smb2.cmd == 6 and smb2.flags.response == 0 ) '
+            'or (smb2.cmd == 6 and smb2.flags.response == 1 and smb2.nt_status == 0) '
+            'or (smb2.cmd == 8 and not dcerpc and smb2.file_offset == 0 and not data and (not smb2.share_type or smb2.share_type == 0x01)) '
+            'or (smb2.cmd == 16 and smb2.sec_info.infolevel == 0x00 '
+            'and (smb2.flags.response == 0 and smb2.getsetinfo_additional_secinfo.owner == 1 '
+            'or smb2.getsetinfo_additional_secinfo.dacl == 1 or smb2.nt_status == 0)) or (smb2.cmd == 17)) '
+            'and !(smb2.filename contains ":Zone.Identifier")'
+            'and !(smb2.filename contains "") and !(smb2.filename contains ":") and !(smb2.filename == "srvsvc") and !(smb2.filename == "wkssvc") and !(smb2.filename == "MsFteWds") '
+            'and !(smb2.file_attribute.hidden == 1)) '
+        )
+        # Add IPv4 and IPv6 conditions to the filter
+        ip_filter_parts = []
+        if ipv4_address:
+            ip_filter_parts.append(f"((ip.src == {ipv4_address} and smb2.flags.response == 0) or (ip.dst == {ipv4_address} and smb2.flags.response == 1))")
+        if ipv6_address:
+            ip_filter_parts.append(f"((ipv6.src == {ipv6_address} and smb2.flags.response == 0) or (ipv6.dst == {ipv6_address} and smb2.flags.response == 1))")
+        
+        # Combine base filter with IP conditions
+        ip_filter = ' or '.join(ip_filter_parts)
+        capture_filter = f"{base_filter} and ({ip_filter})"
+        
+        return capture_filter
     
-    async def async_log(self, message):
-        """Asynchronous logging."""
-        logging.info(message)
+    def load_config(self):
+        try:
+            with open('config.json', 'r') as config_file:
+                config = json.load(config_file)
+                self.url = config['url']
+                self.token = config['token']
+        except Exception as e:
+            logging.error(f"Error loading config: {e}")
+
+    def add_log_data(self, log_data):
+        self.log_queue.put(log_data)
+        if not self.timer.is_alive():
+            self.timer = Timer(1.0, self.send_log_data)
+            self.timer.start()
+
+    def send_log_data(self):
+        batch_logs = []
+        while not self.log_queue.empty():
+            batch_logs.append(self.log_queue.get())
+            self.log_queue.task_done()
+
+        if not self.send_logs_to_server(batch_logs):
+            self.save_logs_locally(batch_logs)
+        self.send_saved_logs()
+
+    def send_logs_to_server(self, logs):
+        headers = {'Authorization': f'{self.token}'}
+        retries = 3  # Number of retries
+        timeout = 3  # Timeout in seconds
+        for attempt in range(retries):
+            try:
+                response = requests.post(self.url, json=logs, headers=headers, timeout=timeout)
+                if response.status_code == 201:
+                    return True
+                else:
+                    logging.error(f"Failed to send log data: {response.status_code}")
+            except ConnectTimeout:
+                logging.error(f"Connection timed out. Attempt {attempt + 1} of {retries}.")
+            except RequestException as e:
+                logging.error(f"Request failed: {e}")
+            time.sleep(1)  # Wait before retrying
+        return False
+
+    def save_logs_locally(self, logs):
+        existing_logs = []
+        if os.path.exists(self.local_log_file):
+            with open(self.local_log_file, 'r') as file:
+                existing_logs = json.load(file)
+        with open(self.local_log_file, 'w') as file:
+            existing_logs.extend(logs)
+            json.dump(existing_logs, file)
+
+    def send_saved_logs(self):
+        if os.path.exists(self.local_log_file):
+            with open(self.local_log_file, 'r') as file:
+                saved_logs = json.load(file)
+
+            batch_size = 50  # Define the batch size
+            while saved_logs:
+                # Take the first 'batch_size' logs or all remaining logs if fewer than 'batch_size'
+                current_batch = saved_logs[:batch_size]
+                if self.send_logs_to_server(current_batch):
+                    # Remove the sent logs from 'saved_logs'
+                    saved_logs = saved_logs[batch_size:]
+                else:
+                    break  # Stop sending if a batch fails
+
+            # Save any remaining logs back to the file
+            with open(self.local_log_file, 'w') as file:
+                json.dump(saved_logs, file)
+
+            # If all logs have been sent, delete the file
+            if not saved_logs:
+                os.remove(self.local_log_file)
 
     def process_smb2_packet(self):
-        print("Starting SMB packet capture on interface:", self.interface)
-        self.get_shared_folders()
-        capture = pyshark.LiveCapture(interface=self.interface, display_filter=self.capture_filter)
-
         try:
-            for packet in capture.sniff_continuously():
-                if hasattr(packet, 'kerberos') and packet.kerberos.msg_type == '13':
-                    
-                    pass
-                elif hasattr(packet, 'smb2'):
-                    if packet.smb2.cmd == '1':
-                        if packet.smb2.buffer_code == '0x0009':
-                            if packet.smb2.nt_status == '0x00000000':
-                                self.capture_smb2_session_setup(packet)
-                    elif packet.smb2.cmd == '2':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
-                           packet.smb2.nt_status == '0x00000000':
-                                self.logoff_session_response(packet)
-                    elif packet.smb2.cmd == '3':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
-                            self.tree_connect_request(packet)
-                        elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
-                             hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000'and \
-                             hasattr(packet.smb2, 'share_type') and packet.smb2.share_type == '0x01':
-                                 self.tree_connect_response(packet)    
-                    elif packet.smb2.cmd == '4':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
-                           hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                            self.tree_disconnect_response(packet)                       
-                    elif packet.smb2.cmd == '5':
-                        if packet.smb2.buffer_code == '0x0039':
-                            self.create_request(packet)
-                        elif packet.smb2.buffer_code == '0x0059':
-                            self.create_response(packet)
-                    elif packet.smb2.cmd == '6':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
-                            self.close_request(packet)
-                        elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
-                             hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                                 self.close_response(packet)   
-                    elif packet.smb2.cmd == '8':
-                        if packet.smb2.buffer_code == '0x0031':
-                            self.file_accessed(packet)
-                    elif packet.smb2.cmd == '16':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
-                            if hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
-                                self.get_security_request(packet)
-                        elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True':
-                            if hasattr(packet.smb2, 'sec_info_00') and packet.smb2.sec_info_00 == 'SMB2_SEC_INFO_00':
-                                if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                                    self.get_security_response(packet)
-                    elif packet.smb2.cmd == '17':
-                        if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
-                            if hasattr(packet.smb2, 'file_disposition_info') and packet.smb2.file_disposition_info == 'SMB2_FILE_DISPOSITION_INFO':
-                                self.folder_delete_request(packet)
-                            elif hasattr(packet.smb2, 'file_rename_info') and packet.smb2.file_rename_info == 'SMB2_FILE_RENAME_INFO':
-                                self.handle_rename_request(packet)
-                            elif hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
-                                self.set_security_request(packet)
-                        elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True':
-                            if hasattr(packet.smb2, 'file_info.infolevel') and packet.smb2._all_fields['smb2.file_info.infolevel'] == '0x0d':
-                                if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                                    self.folder_delete_response(packet)
-                            elif hasattr(packet.smb2, 'file_info.infolevel') and packet.smb2._all_fields['smb2.file_info.infolevel'] == '0x0a':
-                                if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                                    self.handle_rename_response(packet)
-                            elif hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
-                                if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
-                                    self.set_security_response(packet)
-        except KeyboardInterrupt:
-            logging.error(f"Exiting")
+            print("Starting SMB packet capture on interface:", self.interface)
+            capture = pyshark.LiveCapture(interface=self.interface, display_filter=self.capture_filter)
         except Exception as e:
-            logging.error(f"An unexpected error occurred: {e}")
-
-    def capture_kerberos_packet(self, packet):
-        try:
-            ip = packet.ip.dst
-            cname_string = packet.kerberos.CNameString
-            crealm = packet.kerberos.crealm
-            user_domain = f"{cname_string}@{crealm}".lower()
-            self.kerberos_info[ip] = user_domain
-        except AttributeError:
-            logging.error("Error processing: capture_kerberos_packet") 
+            logging.error(f"Error during initialization: {e}")
+            logging.error(traceback.format_exc())
+            return  
+        while True:
+            try:
+                for packet in capture.sniff_continuously():
+                    if hasattr(packet, 'smb2'):
+                        if packet.smb2.cmd == '1':
+                            if packet.smb2.buffer_code == '0x0009':
+                                if packet.smb2.nt_status == '0x00000000':
+                                    self.capture_smb2_session_setup(packet)
+                        elif packet.smb2.cmd == '2':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
+                            packet.smb2.nt_status == '0x00000000':
+                                    self.logoff_session_response(packet)
+                        elif packet.smb2.cmd == '3':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
+                                self.tree_connect_request(packet)
+                            elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
+                                hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000'and \
+                                hasattr(packet.smb2, 'share_type') and packet.smb2.share_type == '0x01':
+                                    self.tree_connect_response(packet)    
+                        elif packet.smb2.cmd == '4':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
+                            hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                self.tree_disconnect_response(packet)                       
+                        elif packet.smb2.cmd == '5':
+                            if packet.smb2.buffer_code == '0x0039':
+                                self.create_request(packet)
+                            elif packet.smb2.buffer_code == '0x0059':
+                                self.create_response(packet)
+                        elif packet.smb2.cmd == '6':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
+                                self.close_request(packet)
+                            elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True' and \
+                                hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                    self.close_response(packet)   
+                        elif packet.smb2.cmd == '8':
+                            if packet.smb2.buffer_code == '0x0031':
+                                self.file_accessed(packet)
+                        elif packet.smb2.cmd == '16':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
+                                if hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
+                                    self.get_security_request(packet)
+                            elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True':
+                                if hasattr(packet.smb2, 'sec_info_00') and packet.smb2.sec_info_00 == 'SMB2_SEC_INFO_00':
+                                    if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                        self.get_security_response(packet)
+                        elif packet.smb2.cmd == '17':
+                            if hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'False':
+                                if hasattr(packet.smb2, 'file_disposition_info') and packet.smb2.file_disposition_info == 'SMB2_FILE_DISPOSITION_INFO':
+                                    self.folder_delete_request(packet)
+                                elif hasattr(packet.smb2, 'file_rename_info') and packet.smb2.file_rename_info == 'SMB2_FILE_RENAME_INFO':
+                                    self.handle_rename_request(packet)
+                                elif hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
+                                    self.set_security_request(packet)
+                            elif hasattr(packet.smb2, 'flags.response') and packet.smb2._all_fields['smb2.flags.response'] == 'True':
+                                if hasattr(packet.smb2, 'file_info.infolevel') and packet.smb2._all_fields['smb2.file_info.infolevel'] == '0x0d':
+                                    if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                        self.folder_delete_response(packet)
+                                elif hasattr(packet.smb2, 'file_info.infolevel') and packet.smb2._all_fields['smb2.file_info.infolevel'] == '0x0a':
+                                    if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                        self.handle_rename_response(packet)
+                                elif hasattr(packet.smb2, 'sec_info.infolevel') and packet.smb2._all_fields['smb2.sec_info.infolevel'] == '0x00':
+                                    if hasattr(packet.smb2, 'nt_status') and packet.smb2.nt_status == '0x00000000':
+                                        self.set_security_response(packet)
+            except KeyboardInterrupt:
+                logging.error("Manual interruption received (KeyboardInterrupt). Exiting.")
+                break 
+            except Exception as e:
+                logging.error(f"An unexpected error occurred: {e}")
+                logging.error("Error details:")
+                logging.error(traceback.format_exc())
+                continue
+        logging.info("SMB packet capture ended.")
 
     def capture_smb2_session_setup(self, packet):
         try:
             session_id = packet.smb2.sesid
             ip = packet.ip.dst
             user_domain = self.kerberos_info.get(ip, 'Unknown')
-
-            if user_domain != 'Unknown':
+            ntlmssp_verf = packet.smb2._all_fields.get('ntlmssp.verf', None)
+            if hasattr(packet.smb2, 'acct') and hasattr(packet.smb2, 'domain') and ntlmssp_verf == 'NTLMSSP Verifier':
+                username = packet.smb2._all_fields.get('smb2.acct', 'Unknown')
+                domain = packet.smb2._all_fields.get('smb2.domain', 'Unknown')
+                user_domain = f"{domain}\\{username}"
                 self.smb2_sessions[session_id] = user_domain
-            else:
-                
-                ntlmssp_verf = packet.smb2._all_fields.get('ntlmssp.verf', None)
-                if hasattr(packet.smb2, 'acct') and hasattr(packet.smb2, 'domain') and ntlmssp_verf == 'NTLMSSP Verifier':
-                    username = packet.smb2._all_fields.get('smb2.acct', 'Unknown')
-                    domain = packet.smb2._all_fields.get('smb2.domain', 'Unknown')
-                    user_domain = f"{domain}\\{username}"
-                    self.smb2_sessions[session_id] = user_domain
         except AttributeError as e:
             logging.error("Error processing: capture_smb2_session_setup")
     
@@ -248,7 +358,7 @@ class SMB2Monitor:
             status = packet.smb2.nt_status
             file_or_dir = 'Unknown'
             create_action = 'Unknown'
-            file_or_dir = 'Directory' if packet.smb2.get_field_value('file_attribute.directory') == 'True' else 'File'
+            file_or_dir = 'Directory' if packet.smb2.get_field_value('file_attribute.directory') == 'True' else ('File' if packet.smb2.get_field_value('file_attribute.directory') == 'False' else 'Unknown')
             create_action = 'Opened' if packet.smb2.get_field_value('create.action') == '1' else ('Created' if packet.smb2.get_field_value('create.action') == '2' else 'Unknown')
 
             file_key = (session_id, file_id)
@@ -357,13 +467,65 @@ class SMB2Monitor:
             new_path, new_base_name = split_path(new_filename)
 
             if old_base_name != new_base_name and old_path == new_path:
-                logging.info(f"[{formatted_time}] [{ip}] [Renamed] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{new_filename}]")
+                #logging.info(f"[{formatted_time}] [{ip}] [Renamed] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{new_filename}]")
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Renamed',
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_path': old_filename,
+                        'new_path': new_filename,
+                        }
+                self.add_log_data(log_data)
             elif old_path != new_path and old_base_name == new_base_name:
-                logging.info(f"[{formatted_time}] [{ip}] [Moved] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{new_filename}]")
+                #logging.info(f"[{formatted_time}] [{ip}] [Moved] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{new_filename}]")
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Moved',
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_path': old_filename,
+                        'new_path': new_filename,
+                        }
+                self.add_log_data(log_data)
             elif old_path != new_path and old_base_name != new_base_name:
                 intermediate_filename = f"{new_path + '\\' if new_path else ''}{old_base_name}"
-                logging.info(f"[{formatted_time}] [{ip}] [Moved] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{intermediate_filename}]")
-                logging.info(f"[{formatted_time}] [{ip}] [Renamed] [{file_or_dir}] [{user_domain}] [{tree_path}] [{intermediate_filename}] [{new_filename}]")
+                #logging.info(f"[{formatted_time}] [{ip}] [Moved] [{file_or_dir}] [{user_domain}] [{tree_path}] [{old_filename}] [{intermediate_filename}]")
+                #logging.info(f"[{formatted_time}] [{ip}] [Renamed] [{file_or_dir}] [{user_domain}] [{tree_path}] [{intermediate_filename}] [{new_filename}]")
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Moved',
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_path': old_filename,
+                        'new_path': intermediate_filename,
+                        }
+                self.add_log_data(log_data)
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Renamed',
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_path': intermediate_filename,
+                        'new_path': new_filename,
+                        }
+                self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: handle_rename_response")
 
@@ -382,7 +544,19 @@ class SMB2Monitor:
                 user_domain = self.resolve_user_domain(filename, ip, session_id)   
             if tree_path == 'Unknown':
                 tree_path = self.resolve_tree_path(filename, ip, tree_key)     
-            logging.info(f"[{formatted_time}] [{ip}] [Deleted] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            #logging.info(f"[{formatted_time}] [{ip}] [Deleted] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Removed',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        }
+            self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: delete_file")
         
@@ -418,7 +592,19 @@ class SMB2Monitor:
                 user_domain = self.resolve_user_domain(filename, ip, session_id)
             if tree_path == 'Unknown':
                 tree_path = self.resolve_tree_path(filename, ip, tree_key)            
-            logging.info(f"[{formatted_time}] [{ip}] [Deleted] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            #logging.info(f"[{formatted_time}] [{ip}] [Deleted] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Removed',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        }
+            self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: folder_delete_response")
             
@@ -437,7 +623,19 @@ class SMB2Monitor:
                 user_domain = self.resolve_user_domain(filename, ip, session_id)            
             if tree_path == 'Unknown':
                 tree_path = self.resolve_tree_path(filename, ip, tree_key)
-            logging.info(f"[{formatted_time}] [{ip}] [Created] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            #logging.info(f"[{formatted_time}] [{ip}] [Created] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")
+            log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Created',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        }
+            self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: create_file_folder")
 
@@ -456,7 +654,19 @@ class SMB2Monitor:
                 user_domain = self.resolve_user_domain(filename, ip, session_id)
             if tree_path == 'Unknown':
                 tree_path = self.resolve_tree_path(filename, ip, tree_key)
-            logging.info(f"[{formatted_time}] [{ip}] [Modified] [File] [{user_domain}] [{tree_path}] [{filename}]")
+            #logging.info(f"[{formatted_time}] [{ip}] [Modified] [File] [{user_domain}] [{tree_path}] [{filename}]")
+            log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Modified',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': 'File',
+                        'host': ip,
+                        'status': 'Success',
+                        }
+            self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: file_modification")
 
@@ -503,29 +713,56 @@ class SMB2Monitor:
                 return
             if get_owner == 'Unknown' and get_acl == 'Unknown':
                 return
-            changes = []
-            if get_owner != 'Unknown' or get_acl == 'Unknown':
-                if set_owner != get_owner:
-                    changes.append('Owner changed')
-            if get_acl != 'Unknown' or get_owner == 'Unknown':
-                if set_acl != get_acl:
-                    changes.append('ACL modified')
-            if changes:
-                change_message = ' and '.join(changes).capitalize()
-                timestamp = datetime.datetime.fromtimestamp(float(packet.sniff_timestamp))
-                formatted_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
-                ip = packet.ip.dst
-                tree_key = (tree_id, session_id)
-                tree_path = self.tree_connect_info.get(tree_key, 'Unknown')
-                user_domain = self.smb2_sessions.get(session_id, 'Unknown')
-                if user_domain == 'Unknown':
-                    user_domain = self.resolve_user_domain(filename, ip, session_id)
-                if tree_path == 'Unknown':
-                    tree_path = self.resolve_tree_path(filename, ip, tree_key)
-                logging.info(f"[{formatted_time}] [{ip}] [{change_message}] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}]")    
+                
+            timestamp = datetime.datetime.fromtimestamp(float(packet.sniff_timestamp))
+            formatted_time = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            ip = packet.ip.dst
+            tree_key = (tree_id, session_id)
+            tree_path = self.tree_connect_info.get(tree_key, 'Unknown')
+            user_domain = self.smb2_sessions.get(session_id, 'Unknown')
+            if user_domain == 'Unknown':
+                user_domain = self.resolve_user_domain(filename, ip, session_id)
+            if tree_path == 'Unknown':
+                tree_path = self.resolve_tree_path(filename, ip, tree_key)
+                
+            if get_owner != 'Unknown' and set_owner != 'Unknown' and set_owner != get_owner:
+                get_owner_user = self.sid_to_name(get_owner)
+                set_owner_user = self.sid_to_name(set_owner)
+                #logging.info(f"[{formatted_time}] [{ip}] [Owner Changed] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}] [Old Owner: {get_owner_user}] [New Owner: {set_owner_user}]")
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Owner Changed',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_owner': get_owner_user,
+                        'new_owner': set_owner_user,
+                        }
+            self.add_log_data(log_data)
+            if get_acl != 'Unknown' and set_acl != 'Unknown' and set_acl != get_acl:
+                get_acl_log = self.format_acl_lines(get_acl)
+                set_acl_log = self.format_acl_lines(set_acl)
+                #logging.info(f"[{formatted_time}] [{ip}] [ACL modified] [{file_or_dir}] [{user_domain}] [{tree_path}] [{filename}] [{get_acl_log}] [{set_acl_log}]")
+                log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'ACL modified',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': file_or_dir,
+                        'host': ip,
+                        'status': 'Success',
+                        'old_acl': get_acl_log,
+                        'new_acl': set_acl_log,
+                        }
         except AttributeError:
              logging.error("Error processing: set_security_response")
-        
+
     def get_security_request(self, packet):
         try:
             file_id = packet.smb2.fid
@@ -594,9 +831,19 @@ class SMB2Monitor:
             tree_path = self.tree_connect_info.get(tree_key, 'Unknown')
             if tree_path == 'Unknown':
                 tree_path = self.resolve_tree_path(filename, ip, tree_key)
-            
-            logging.info(f"[{formatted_time}] [{ip}] [Accessed] [File] [{user_domain}] [{tree_path}] [{filename}]")
-        
+            #logging.info(f"[{formatted_time}] [{ip}] [Accessed] [File] [{user_domain}] [{tree_path}] [{filename}]")
+            log_data = {
+                        'when': formatted_time,
+                        'who': user_domain,
+                        'action': 'Accessed',
+                        'what': filename,
+                        'where': self.computer_name,
+                        'share_name': tree_path,
+                        'object_type': 'File',
+                        'host': ip,
+                        'status': 'Success',
+                        }
+            self.add_log_data(log_data)
         except AttributeError:
             logging.error("Error processing: file_accessed, attribute not found.")
         except Exception as e:
@@ -604,7 +851,6 @@ class SMB2Monitor:
 
     def resolve_user_domain(self, filename, ip_address, session_id):
         try:
-            
             user_domain, script_path = self.run_script(filename, ip_address, "ClientUserName")
             if user_domain != 'Unknown':
                 self.smb2_sessions[session_id] = user_domain
@@ -615,25 +861,37 @@ class SMB2Monitor:
                         
     def resolve_tree_path(self, filename, ip_address, tree_key):
         try:
-            
             tree_path = 'Unknown'
             full_path, script_path = self.run_script(filename, ip_address, "Path")
+            
             if full_path != 'Unknown':
-                full_path_lower = full_path.lower()  
+                full_path_lower = full_path.lower()
+
+                # First attempt to find a match
                 for share_path, share_name in self.share_info_dict.items():
                     expected_path = f"{share_path}\\{script_path}"
-                    expected_path_lower = expected_path.lower()  
+                    expected_path_lower = expected_path.lower()
                     if full_path_lower == expected_path_lower:
                         tree_path = share_name
-                        self.tree_connect_info[tree_key] = tree_path  
-                        break
+                        self.tree_connect_info[tree_key] = tree_path
+
+                # If not found, update shared folders and try again
+                if tree_path == 'Unknown':
+                    self.get_shared_folders()
+                    for share_path, share_name in self.share_info_dict.items():
+                        expected_path = f"{share_path}\\{script_path}"
+                        expected_path_lower = expected_path.lower()
+                        if full_path_lower == expected_path_lower:
+                            tree_path = share_name
+                            self.tree_connect_info[tree_key] = tree_path
+                            break
+
             return tree_path
         except Exception as e:
-            logging.error(f"Error resolving tree path for file: {filename} from IP: {ip_address}. Error: {e}")
+            logging.error(f"Error in resolve_tree_path for file: {filename} from IP: {ip_address}. Error: {e}")
             return 'Unknown'
     
     def execute_powershell_script(self, path, ip_address, property_name):
-        """Executes a PowerShell script and returns the output."""
         try:
             script = f'Get-SmbOpenFile | Where-Object {{ $_.ShareRelativePath -eq "{path}" -and $_.ClientComputerName -eq "{ip_address}" }} | Select-Object -Property {property_name} | Out-String -Width 4096'
             result = subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-Command", script], capture_output=True, text=True, check=True)
@@ -650,8 +908,6 @@ class SMB2Monitor:
             return "Unknown"
 
     def run_script(self, path, ip_address, property_name):
-        """Executes a PowerShell script and returns the output, along with the reduced path."""
-        
         while True:
             result = self.execute_powershell_script( path, ip_address, property_name)
             if result != "Unknown":
@@ -666,7 +922,6 @@ class SMB2Monitor:
     
     def get_shared_folders(self):
         try:
-            
             wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
             query = "SELECT * FROM Win32_Share"
             result = wmi.ExecQuery(query)
@@ -675,6 +930,7 @@ class SMB2Monitor:
             for share in result:
                 share_path = f"\\\\{self.computer_name}\\{share.Name}"
                 self.share_info_dict[share.Path] = share_path
+            
 
             logging.info("Successfully updated shared folders.")
         except Exception as e:
@@ -683,9 +939,37 @@ class SMB2Monitor:
     def get_computer_name(self):
         return socket.gethostname().lower()
 
-    def get_fully_qualified_domain_name(self):
-        return socket.getfqdn().lower()
+    def format_acl_lines(self, acl_lines):
+        get_acl_lines = acl_lines.split('\n') if acl_lines else []
+        sid_pattern = re.compile(r'S-\d+-\d+(?:-\d+)+')
+        formatted_lines = []
+        for i, get_line in enumerate(get_acl_lines):
+            sid_match = sid_pattern.search(get_line)
+            if sid_match:
+                sid = sid_match.group()
+                acl_lines_formatted = self.sid_to_name(sid)
 
+                line_parts = get_line.split(',', 1)
+                if len(line_parts) == 2:
+                    line_part1, line_part2 = line_parts
+                    formatted_lines.append(f"[({i + 1}) {acl_lines_formatted},{line_part2}]")
+                else:
+                    logging.warning(f"({i + 1}) [Invalid line format: {get_line}]")
+
+        log_string = '\n'.join(formatted_lines)
+        return log_string
+    
+    def sid_to_name(self, sid_str):
+        try:
+            sid = win32security.ConvertStringSidToSid(sid_str)
+            name, domain, _ = win32security.LookupAccountSid(None, sid)
+            return f"{domain}\\{name}"
+        except Exception as e:
+            logging.error(f"Error converting SID to name: {e}")
+            return sid_str
+  
 if __name__ == "__main__":
     monitor = SMB2Monitor(interface='Ethernet 3')
     monitor.process_smb2_packet()
+    monitor.log_queue.join() 
+    monitor.log_thread.join() 
