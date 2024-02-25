@@ -97,14 +97,13 @@ class SMB2Monitor:
         # Add IPv4 and IPv6 conditions to the filter
         ip_filter_parts = []
         if ipv4_address:
-            ip_filter_parts.append(f"((ip.src == {ipv4_address} and smb2.flags.response == 0) or (ip.dst == {ipv4_address} and smb2.flags.response == 1))")
+            ip_filter_parts.append(f"((ip.dst == {ipv4_address} and smb2.flags.response == 0) or (ip.src == {ipv4_address} and smb2.flags.response == 1))")
         if ipv6_address:
-            ip_filter_parts.append(f"((ipv6.src == {ipv6_address} and smb2.flags.response == 0) or (ipv6.dst == {ipv6_address} and smb2.flags.response == 1))")
+            ip_filter_parts.append(f"((ipv6.dst == {ipv6_address} and smb2.flags.response == 0) or (ipv6.src == {ipv6_address} and smb2.flags.response == 1))")
         
         # Combine base filter with IP conditions
         ip_filter = ' or '.join(ip_filter_parts)
         capture_filter = f"{base_filter} and ({ip_filter})"
-        
         return capture_filter
     
     def load_config(self, config_file):
