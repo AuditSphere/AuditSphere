@@ -1,5 +1,9 @@
 {
-    "interface": "your_interface_name_here",
-    "url": "your_url_here",
-    "token": "your_token_here"
+    "interface": "",
+    "url": "",
+    "basic-auth": "",
+    "save_to_file": true,
+    "num_files": 30,
+    "logs_directory": "",
+    "pcap_files": ""
 }

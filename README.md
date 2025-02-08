@@ -51,7 +51,6 @@ AuditSphere records the following information for each action:
 
 AuditSphere currently supports the following protocols:
 - SMB (Server Message Block)
-- NFS (Network File System)
 
 Please note that we are actively working on improving our feature set and expanding protocol support. 
 
