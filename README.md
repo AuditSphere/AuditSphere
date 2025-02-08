@@ -62,11 +62,11 @@ This repository includes project reports covering various aspects of the project
 
 ### Installation
 
-Learn how to install AuditSphere by following the instructions in the [Installation Guide](link_to_installation_guide.md).
+Learn how to install AuditSphere by following the instructions in the [Installation Guide](https://github.com/AuditSphere/AuditSphere/wiki).
 
 ### Usage
 
-Get started with AuditSphere by referring to our [User Guide](link_to_user_guide.md) for effective usage.
+Get started with AuditSphere by referring to our [User Guide](https://github.com/AuditSphere/AuditSphere/wiki) for effective usage.
 
 ## Screenshots 📸
 ![Screenshot 2024-02-07 154402](https://github.com/AuditSphere/AuditSphere/assets/66524832/ce2d1f9a-e263-4732-9cf0-2443c117545d)
