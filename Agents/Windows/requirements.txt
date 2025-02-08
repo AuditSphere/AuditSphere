@@ -1,0 +1,7 @@
+certifi==2025.1.31
+charset-normalizer==3.4.1
+idna==3.10
+psutil==6.1.1
+pywin32==308
+requests==2.32.3
+urllib3==2.3.0
